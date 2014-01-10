@@ -2,23 +2,21 @@
 
 ''' 
 proxy based on https://pypi.python.org/pypi/ProxyHTTPServer/
-digest auth based on http://svn.python.org/projects/stackless/branches/release26-maint/Lib/test/test_urllib2_localnet.py
 '''
 
 import BaseHTTPServer, httplib, SocketServer, urllib, hashlib, urlparse
+from base64 import b64decode
 
-class DigestAuthHandler:
-    """Handler for performing digest authentication."""
+class DecodeError(Exception):
+    pass
+
+class BasicAuthHandler:
+    """Handler for performing basic authentication."""
 
     def __init__(self):
         self._request_num = 0
-        self._nonces = []
         self._users = {}
         self._realm_name = "lugh.localdomain"
-        self._qop = "auth"
-
-    def set_qop(self, qop):
-        self._qop = qop
 
     def set_users(self, users):
         assert isinstance(users, dict)
@@ -27,55 +25,22 @@ class DigestAuthHandler:
     def set_realm(self, realm):
         self._realm_name = realm
 
-    def _generate_nonce(self):
-        self._request_num += 1
-        nonce = hashlib.md5(str(self._request_num)).hexdigest()
-        self._nonces.append(nonce)
-        return nonce
-
     def _create_auth_dict(self, auth_str):
+    	# Remove the "Basic " part.
         first_space_index = auth_str.find(" ")
         auth_str = auth_str[first_space_index+1:]
 
-        parts = auth_str.split(",")
-
-        auth_dict = {}
-        for part in parts:
-            name, value = part.split("=")
-            name = name.strip()
-            if value[0] == '"' and value[-1] == '"':
-                value = value[1:-1]
-            else:
-                value = value.strip()
-            auth_dict[name] = value
-        return auth_dict
-
-    def _validate_auth(self, auth_dict, password, method, uri):
-        final_dict = {}
-        final_dict.update(auth_dict)
-        final_dict["password"] = password
-        final_dict["method"] = method
-        final_dict["uri"] = uri
-        HA1_str = "%(username)s:%(realm)s:%(password)s" % final_dict
-        HA1 = hashlib.md5(HA1_str).hexdigest()
-        HA2_str = "%(method)s:%(uri)s" % final_dict
-        HA2 = hashlib.md5(HA2_str).hexdigest()
-        final_dict["HA1"] = HA1
-        final_dict["HA2"] = HA2
-        response_str = "%(HA1)s:%(nonce)s:%(nc)s:" \
-                       "%(cnonce)s:%(qop)s:%(HA2)s" % final_dict
-        response = hashlib.md5(response_str).hexdigest()
-
-        return response == auth_dict["response"]
+        # auth_str now looks like nmVubfk652Vj1mV0
+        try:
+            username, password = b64decode(auth_str).split(':')
+        except:
+            raise DecodeError
+        return { "username" : username, "password" : password }
 
     def _return_auth_challenge(self, request_handler):
         request_handler.send_response(407, "Proxy Authentication Required")
         request_handler.send_header("Content-Type", "text/html")
-        request_handler.send_header(
-            'Proxy-Authenticate', 'Digest realm="%s", '
-            'qop="%s",'
-            'nonce="%s", ' % \
-            (self._realm_name, self._qop, self._generate_nonce()))
+        request_handler.send_header('Proxy-Authenticate', 'Basic realm="%s"' % (self._realm_name))
         # XXX: Not sure if we're supposed to add this next header or
         # not.
         #request_handler.send_header('Connection', 'close')
@@ -84,11 +49,11 @@ class DigestAuthHandler:
         return False
 
     def handle_request(self, request_handler):
-        """Performs digest authentication on the given HTTP request
+        """Performs basic authentication on the given HTTP request
         handler.  Returns True if authentication was successful, False
         otherwise.
 
-        If no users have been set, then digest auth is effectively
+        If no users have been set, then basic auth is effectively
         disabled and this method will always return True.
         """
 
@@ -98,30 +63,15 @@ class DigestAuthHandler:
         if 'Proxy-Authorization' not in request_handler.headers:
             return self._return_auth_challenge(request_handler)
         else:
-            auth_dict = self._create_auth_dict(
-                request_handler.headers['Proxy-Authorization']
-                )
+            auth_dict = self._create_auth_dict(request_handler.headers['Proxy-Authorization'])
             if auth_dict["username"] in self._users:
                 password = self._users[ auth_dict["username"] ]
             else:
                 return self._return_auth_challenge(request_handler)
-            if not auth_dict.get("nonce") in self._nonces:
-                return self._return_auth_challenge(request_handler)
-            else:
-                self._nonces.remove(auth_dict["nonce"])
-
             auth_validated = False
 
-            # MSIE uses short_path in its validation, but Python's
-            # urllib2 uses the full path, so we're going to see if
-            # either of them works here.
-
-            for path in [request_handler.path, request_handler.short_path]:
-                if self._validate_auth(auth_dict,
-                                       password,
-                                       request_handler.command,
-                                       path):
-                    auth_validated = True
+            if password == auth_dict["password"]:
+            	auth_validated = True
 
             if not auth_validated:
                 return self._return_auth_challenge(request_handler)
@@ -129,13 +79,13 @@ class DigestAuthHandler:
 
 class ProxyHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
-	digest_auth_handler = DigestAuthHandler()
+	basic_auth_handler = BasicAuthHandler()
 
 	def doCommon(self):
 		(scm, netloc, path, params, query, fragment) = urlparse.urlparse(self.path, 'http')
 		self.short_path = path
 
-		if self.digest_auth_handler.handle_request(self):
+		if self.basic_auth_handler.handle_request(self):
 			req = Request(self)
 			req.delHeaders("accept-encoding", "host", "proxy-connection")
 			
@@ -325,8 +275,8 @@ class ThreadingHTTPServer(SocketServer.ThreadingTCPServer, BaseHTTPServer.HTTPSe
 def test(HandlerClass = ProxyHTTPRequestHandler,
 		ServerClass = ThreadingHTTPServer):
 
-	ProxyHTTPRequestHandler.digest_auth_handler.set_users({'jenny':'supersecret'})
-	ProxyHTTPRequestHandler.digest_auth_handler.set_realm('lugh.localdomain')
+	ProxyHTTPRequestHandler.basic_auth_handler.set_users({'jenny':'supersecret'})
+	ProxyHTTPRequestHandler.basic_auth_handler.set_realm('lugh.localdomain')
 	BaseHTTPServer.test(HandlerClass, ServerClass)
 	
 if __name__ == '__main__':
