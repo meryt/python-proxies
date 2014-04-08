@@ -31,9 +31,16 @@ class LoggingAuthSessionResource(HTTPAuthSessionWrapper):
         print colored("BASIC [%s] - Attempting login for %s" % (str(datetime.datetime.utcnow()), str(credentials)), "green")
         return super(LoggingAuthSessionResource, self)._login(credentials)
 
+    def render_POST(self, request):
+        print "%s from %s for %s (user: %s pass: %s)" % (
+            colored("BASIC Request # %d" % (self.numRequests), 'red'), colored(request.getClientIP(), 'white', attrs=["bold"]), colored(request.getAllHeaders()['host'], 'yellow', attrs=["bold"]), request.getUser(), request.getPassword())
+        print colored(request.content.read(), "yellow")
+        return super(HTTPAuthSessionWrapper, self).render(request)
+
     def render(self, request):
         print "%s from %s for %s (user: %s pass: %s)" % (
             colored("BASIC Request # %d" % (self.numRequests), 'red'), colored(request.getClientIP(), 'white', attrs=["bold"]), colored(request.getAllHeaders()['host'], 'yellow', attrs=["bold"]), request.getUser(), request.getPassword())
+        print colored(request.content.read(), "yellow")
         return super(HTTPAuthSessionWrapper, self).render(request)
 
 class PublicHTMLRealm(object):
@@ -48,7 +55,7 @@ class PublicHTMLRealm(object):
         raise NotImplementedError()
 
 
-portal = Portal(PublicHTMLRealm(), [InMemoryUsernamePasswordDatabaseDontUse(jenny='secret')])
+portal = Portal(PublicHTMLRealm(), [InMemoryUsernamePasswordDatabaseDontUse(jenny='secret:pass',bobo='this is a very long (password) with extra chars##==')])
 credentialFactory = BasicCredentialFactory("lugh.localdomain")
 
 resource = LoggingAuthSessionResource(portal, [credentialFactory])
@@ -57,5 +64,5 @@ site = server.Site(resource)
 portNum = 7083
 print colored("Web server using Basic auth starting up on port %d " % (portNum), 'green', attrs=["bold"])
 log.startLogging(sys.stdout)
-reactor.listenTCP(portNum, site) 
+reactor.listenTCP(portNum, site)
 reactor.run()
