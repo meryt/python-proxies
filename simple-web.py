@@ -15,10 +15,11 @@ class Simple(resource.Resource):
         print "%s %s from %s for %s" % (
             colored("    Request # %d" % (self.numRequests), 'red'),
             colored(request.method, 'white'),
-            colored(request.getClientIP(), 'white', attrs=["bold"]), colored(request.getAllHeaders()['host'], 'yellow', attrs=["bold"]))
+            colored(request.getClientIP(), 'white', attrs=["bold"]), colored(request.getAllHeaders()['host'], 'yellow', attrs=["bold"])
+        )
         headers = request.getAllHeaders()
         for key in headers:
-            if key == 'via' or key == 'x-forwarded-for' or key == 'content-length':
+            if key == 'via' or key == 'x-forwarded-for' or key == 'content-length' or key == 'user-agent':
                 print colored('    ' + key + ": " + headers[key], 'blue')
         print colored(request.content.read(), "yellow")
 
@@ -41,7 +42,7 @@ class Simple(resource.Resource):
 
 
 site = server.Site(Simple())
-portNum = 7081
+portNum = 8087
 reactor.listenTCP(portNum, site)
 print "Unprotected web server, Listening on port " + str(portNum) + "\n"
 reactor.run()

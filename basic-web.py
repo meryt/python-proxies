@@ -55,7 +55,7 @@ class PublicHTMLRealm(object):
         raise NotImplementedError()
 
 
-portal = Portal(PublicHTMLRealm(), [InMemoryUsernamePasswordDatabaseDontUse(jenny='secret:pass',bobo='this is a very long (password) with extra chars##==')])
+portal = Portal(PublicHTMLRealm(), [InMemoryUsernamePasswordDatabaseDontUse(jenny='secret',bobo='this is a very long (password) with extra chars##==')])
 credentialFactory = BasicCredentialFactory("lugh.localdomain")
 
 resource = LoggingAuthSessionResource(portal, [credentialFactory])
